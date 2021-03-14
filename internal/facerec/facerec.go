@@ -1,14 +1,15 @@
 package facerec
 
 import (
-"encoding/json"
-"errors"
-"github.com/Kagami/go-face"
-"image"
-"log"
-"os"
-"sync"
-"sync/atomic"
+	"encoding/json"
+	"errors"
+	"github.com/Kagami/go-face"
+	"github.com/photoprism/photoprism/internal/photoprism"
+	"image"
+	"os"
+	"path/filepath"
+	"sync"
+	"sync/atomic"
 )
 
 type savedFace struct {
@@ -34,28 +35,6 @@ type EZRecognizer struct {
 }
 
 var instance EZRecognizer
-
-func main() {
-	rec, err := CreateRecognizer()
-	if err != nil {
-		log.Fatalf("Unable to create recognizer: %v", err)
-	}
-	defer rec.Close()
-
-	known, unknown, err := rec.Recognize("test.jpg")
-	if err != nil {
-		log.Fatalf("Unable to run recognizer: %v", err)
-	}
-
-	var names []string
-	for _, v := range known {
-		if find(names, v.Name) == -1 {
-			names = append(names, v.Name)
-		}
-	}
-
-	log.Printf("I saw %v as well as %v unknown faces", names, len(unknown))
-}
 
 func CreateRecognizer() (*EZRecognizer, error) {
 	newRefs := atomic.AddUint32(&instance.refs, 1)
@@ -231,7 +210,7 @@ func encodeSave(samples []face.Descriptor, cats []int32, labels []string) error 
 }
 
 func writeSave(faces []savedFace) error {
-	file, err := os.Open("known.json")
+	file, err := openConfig()
 	if err != nil {
 		return err
 	}
@@ -273,7 +252,7 @@ func decodeSave() ([]face.Descriptor, []int32, []string, error) {
 }
 
 func readSave() ([]savedFace, error) {
-	file, err := os.Open("known.json")
+	file, err := openConfig()
 	if err != nil {
 		return nil, err
 	}
@@ -304,4 +283,14 @@ func find(arr []string, str string) int32 {
 		}
 	}
 	return -1
+}
+
+func getConfig() string {
+	config := photoprism.Config()
+	store := config.StoragePath()
+	return filepath.Join(store, "facerec.json")
+}
+
+func openConfig() (*os.File, error) {
+	return os.Open(getConfig())
 }
