@@ -4,16 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/Kagami/go-face"
-	"github.com/photoprism/photoprism/internal/photoprism"
+	"github.com/photoprism/photoprism/internal/config"
 	"image"
 	"os"
 	"path/filepath"
-	"sync"
-	"sync/atomic"
 )
 
 type savedFace struct {
-	name string
+	name       string
 	descriptor face.Descriptor
 }
 
@@ -27,57 +25,36 @@ type KnownFace struct {
 }
 
 type EZRecognizer struct {
-	refs uint32
-	mutex sync.RWMutex
-
-	rec *face.Recognizer
+	rec    *face.Recognizer
+	cfg    *config.Config
 	labels []string
 }
 
-var instance EZRecognizer
+func CreateRecognizer(cfg *config.Config) (*EZRecognizer, error) {
+	instance := EZRecognizer{}
+	instance.cfg = cfg
 
-func CreateRecognizer() (*EZRecognizer, error) {
-	newRefs := atomic.AddUint32(&instance.refs, 1)
-	if newRefs == 1 && instance.rec == nil {
-		instance.mutex.Lock()
-		defer instance.mutex.Unlock()
-
-		var err error
-		instance.rec, err = face.NewRecognizer("models")
-		if err != nil {
-			return nil, err
-		}
-
-		var samples []face.Descriptor
-		var cats []int32
-		samples, cats, instance.labels, err = decodeSave()
-		if err != nil {
-			return nil, err
-		}
-
-		instance.rec.SetSamples(samples, cats)
+	rec, err := face.NewRecognizer("internal/facerec/models")
+	if err != nil {
+		return nil, err
 	}
 
-	return &instance, nil
-}
-
-func (*EZRecognizer) Close() {
-	newRefs := atomic.AddUint32(&instance.refs, ^0)
-
-	if newRefs == 0 && instance.rec != nil {
-		instance.mutex.Lock()
-
-		instance.rec.Close()
-		instance.rec = nil
-
-		instance.mutex.Unlock()
+	samples, cats, labels, err := decodeSave(cfg)
+	if err != nil {
+		rec.Close()
+		return nil, err
 	}
+
+	rec.SetSamples(samples, cats)
+
+	return &EZRecognizer{rec, cfg, labels}, nil
 }
 
-func (*EZRecognizer) Train(img string, name string) error {
-	instance.mutex.Lock()
-	defer instance.mutex.Unlock()
+func (instance EZRecognizer) Close() {
+	instance.rec.Close()
+}
 
+func (instance EZRecognizer) Train(img string, name string) error {
 	faces, err := instance.rec.RecognizeFile(img)
 	if err != nil {
 		return err
@@ -101,7 +78,7 @@ func (*EZRecognizer) Train(img string, name string) error {
 
 	var samples []face.Descriptor
 	var cats []int32
-	samples, cats, instance.labels, err = decodeSave()
+	samples, cats, instance.labels, err = decodeSave(instance.cfg)
 	if err != nil {
 		return err
 	}
@@ -118,13 +95,10 @@ func (*EZRecognizer) Train(img string, name string) error {
 
 	instance.rec.SetSamples(samples, cats)
 
-	return encodeSave(samples, cats, instance.labels)
+	return encodeSave(samples, cats, instance.labels, instance.cfg)
 }
 
-func (*EZRecognizer) TrainFace(img string, trainFace UnknownFace, name string) error {
-	instance.mutex.Lock()
-	defer instance.mutex.Unlock()
-
+func (instance EZRecognizer) TrainFace(img string, trainFace UnknownFace, name string) error {
 	faces, err := instance.rec.RecognizeFile(img)
 	if err != nil {
 		return err
@@ -145,7 +119,7 @@ func (*EZRecognizer) TrainFace(img string, trainFace UnknownFace, name string) e
 
 	var samples []face.Descriptor
 	var cats []int32
-	samples, cats, instance.labels, err = decodeSave()
+	samples, cats, instance.labels, err = decodeSave(instance.cfg)
 	if err != nil {
 		return err
 	}
@@ -162,13 +136,10 @@ func (*EZRecognizer) TrainFace(img string, trainFace UnknownFace, name string) e
 
 	instance.rec.SetSamples(samples, cats)
 
-	return encodeSave(samples, cats, instance.labels)
+	return encodeSave(samples, cats, instance.labels, instance.cfg)
 }
 
-func (*EZRecognizer) Recognize(img string) ([]KnownFace, []UnknownFace, error) {
-	instance.mutex.RLock()
-	defer instance.mutex.RUnlock()
-
+func (instance EZRecognizer) Recognize(img string) ([]KnownFace, []UnknownFace, error) {
 	faces, err := instance.rec.RecognizeFile(img)
 	if err != nil {
 		return nil, nil, err
@@ -182,14 +153,14 @@ func (*EZRecognizer) Recognize(img string) ([]KnownFace, []UnknownFace, error) {
 		if id >= 0 {
 			knownFaces = append(knownFaces, KnownFace{instance.labels[id], f.Rectangle})
 		} else {
-			unknownFaces = append(unknownFaces, UnknownFace{ f.Rectangle })
+			unknownFaces = append(unknownFaces, UnknownFace{f.Rectangle})
 		}
 	}
 
 	return knownFaces, unknownFaces, nil
 }
 
-func encodeSave(samples []face.Descriptor, cats []int32, labels []string) error {
+func encodeSave(samples []face.Descriptor, cats []int32, labels []string, cfg *config.Config) error {
 	if len(samples) != len(cats) {
 		return errors.New("mismatched samples and categories length")
 	}
@@ -203,14 +174,14 @@ func encodeSave(samples []face.Descriptor, cats []int32, labels []string) error 
 
 	var savedFaces []savedFace
 	for i := 0; i < len(samples); i++ {
-		savedFaces = append(savedFaces, savedFace{ labels[cats[i]], samples[i]})
+		savedFaces = append(savedFaces, savedFace{labels[cats[i]], samples[i]})
 	}
 
-	return writeSave(savedFaces)
+	return writeSave(savedFaces, cfg)
 }
 
-func writeSave(faces []savedFace) error {
-	file, err := openConfig()
+func writeSave(faces []savedFace, cfg *config.Config) error {
+	file, err := os.Create(getConfig(cfg))
 	if err != nil {
 		return err
 	}
@@ -228,13 +199,13 @@ func writeSave(faces []savedFace) error {
 	return nil
 }
 
-func decodeSave() ([]face.Descriptor, []int32, []string, error) {
-	savedFaces, err := readSave()
+func decodeSave(cfg *config.Config) ([]face.Descriptor, []int32, []string, error) {
+	savedFaces, err := readSave(cfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
-	var samples [] face.Descriptor
+	var samples []face.Descriptor
 	var cats []int32
 	var labels []string
 	for _, f := range savedFaces {
@@ -251,10 +222,14 @@ func decodeSave() ([]face.Descriptor, []int32, []string, error) {
 	return samples, cats, labels, nil
 }
 
-func readSave() ([]savedFace, error) {
-	file, err := openConfig()
+func readSave(cfg *config.Config) ([]savedFace, error) {
+	file, err := os.Open(getConfig(cfg))
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) { // Suppress non-exist because we can just treat it as empty
+			return nil, nil
+		} else {
+			return nil, err
+		}
 	}
 	defer file.Close()
 
@@ -285,12 +260,6 @@ func find(arr []string, str string) int32 {
 	return -1
 }
 
-func getConfig() string {
-	config := photoprism.Config()
-	store := config.StoragePath()
-	return filepath.Join(store, "facerec.json")
-}
-
-func openConfig() (*os.File, error) {
-	return os.Open(getConfig())
+func getConfig(cfg *config.Config) string {
+	return filepath.Join(cfg.StoragePath(), "facerec.json")
 }
