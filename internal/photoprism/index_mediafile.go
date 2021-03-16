@@ -12,6 +12,7 @@ import (
 	"github.com/photoprism/photoprism/internal/classify"
 	"github.com/photoprism/photoprism/internal/entity"
 	"github.com/photoprism/photoprism/internal/event"
+	"github.com/photoprism/photoprism/internal/facerec"
 	"github.com/photoprism/photoprism/internal/meta"
 	"github.com/photoprism/photoprism/internal/nsfw"
 	"github.com/photoprism/photoprism/internal/query"
@@ -623,6 +624,17 @@ func (ind *Index) MediaFile(m *MediaFile, o IndexOptions, originalName string) (
 		w = append(w, file.FileMainColor)
 		w = append(w, labels.Keywords()...)
 
+		if !Config().DisableFaceRecognition() {
+			if rec, err := facerec.CreateRecognizer(Config()); err != nil {
+				log.Warnf("unable to use face recognition: %v", err)
+			} else if known, _, err := rec.Recognize(filepath.Join(Config().StoragePath(), primaryFile.FileRoot, primaryFile.FileName)); err != nil {
+				log.Warnf("unable to use face recognition: %v", err)
+			} else {
+				for _, face := range known {
+					w = append(w, face.Name)
+				}
+			}
+		}
 		details.Keywords = strings.Join(txt.UniqueWords(w), ", ")
 
 		if details.Keywords != "" {

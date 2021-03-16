@@ -41,3 +41,8 @@ func (c *Config) DisableExifTool() bool {
 func (c *Config) DisableTensorFlow() bool {
 	return c.options.DisableTensorFlow
 }
+
+// DisableFaceRecognition tests if facial recognition should be disabled.
+func (c *Config) DisableFaceRecognition() bool {
+	return c.options.DisableFaceRec
+}

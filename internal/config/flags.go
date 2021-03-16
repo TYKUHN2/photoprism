@@ -157,6 +157,11 @@ var GlobalFlags = []cli.Flag{
 		EnvVar: "PHOTOPRISM_DISABLE_TENSORFLOW",
 	},
 	cli.BoolFlag{
+		Name:   "disable-facerec",
+		Usage:  "don't enable facial recognition support",
+		EnvVar: "PHOTOPRISM_DISABLE_FACEREC",
+	},
+	cli.BoolFlag{
 		Name:   "detect-nsfw",
 		Usage:  "flag photos as private that may be offensive (requires TensorFlow)",
 		EnvVar: "PHOTOPRISM_DETECT_NSFW",
