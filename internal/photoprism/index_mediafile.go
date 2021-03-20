@@ -627,7 +627,7 @@ func (ind *Index) MediaFile(m *MediaFile, o IndexOptions, originalName string) (
 		if !Config().DisableFaceRecognition() {
 			if rec, err := facerec.CreateRecognizer(Config()); err != nil {
 				log.Warnf("unable to use face recognition: %v", err)
-			} else if known, _, err := rec.Recognize(filepath.Join(Config().StoragePath(), primaryFile.FileRoot, primaryFile.FileName)); err != nil {
+			} else if known, _, err := rec.Recognize(FileName(primaryFile.FileRoot, primaryFile.FileName)); err != nil {
 				log.Warnf("unable to use face recognition: %v", err)
 			} else {
 				for _, face := range known {
